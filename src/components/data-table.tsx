@@ -1,186 +1,51 @@
 "use client";
 
-import * as React from "react";
-import {
-  DndContext,
-  KeyboardSensor,
-  MouseSensor,
-  TouchSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type UniqueIdentifier,
-} from "@dnd-kit/core";
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
-  IconChevronLeft,
-  IconChevronRight,
-  IconChevronsLeft,
-  IconChevronsRight,
-} from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+
 import {
   ColumnDef,
-  ColumnFiltersState,
-  Row,
-  SortingState,
-  VisibilityState,
   flexRender,
-  getCoreRowModel,
-  getFacetedRowModel,
-  getFacetedUniqueValues,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
   useReactTable,
+  getCoreRowModel,
 } from "@tanstack/react-table";
-import { toast } from "sonner";
-import { z } from "zod";
 
-import { Button } from "@/components/ui/button";
-import { ChartConfig } from "@/components/ui/chart";
-
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
+  TableRow,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { IUser } from "@/schemas/users";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "./ui/alert-dialog";
-import { useMemo, useState } from "react";
-import { deleteUser } from "@/services/api/users";
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { DeleteUserDialog } from "./DeleteUserDialog";
+import { DataStateHandler } from "./DataStateHandler";
+import { QUERY_KEYS } from "@/constants/queryKeys";
+import { EditUserDialog } from "./EditUserDialog";
+import { Button } from "@/components/ui/button";
+import { getUsers } from "@/services/api/users";
+import { IUser } from "@/schemas/users";
+import { Skeleton } from "./ui/skeleton";
 
-export const schema = z.object({
-  id: z.number(),
-  header: z.string(),
-  type: z.string(),
-  status: z.string(),
-  target: z.string(),
-  limit: z.string(),
-  reviewer: z.string(),
-});
-
-function DraggableRow({ row }: { row: Row<IUser> }) {
-  const { transform, transition, setNodeRef, isDragging } = useSortable({
-    id: row.original.id,
+export function DataTable() {
+  const {
+    data: users,
+    refetch: refetchUsers,
+    isError,
+    isLoading,
+  } = useQuery({
+    queryKey: [QUERY_KEYS.USERS],
+    queryFn: getUsers,
   });
 
-  return (
-    <TableRow
-      data-state={row.getIsSelected() && "selected"}
-      data-dragging={isDragging}
-      ref={setNodeRef}
-      className="relative z-0 data-[dragging=true]:z-10 data-[dragging=true]:opacity-80"
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition: transition,
-      }}
-    >
-      {row.getVisibleCells().map((cell) => (
-        <TableCell key={cell.id}>
-          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-        </TableCell>
-      ))}
-    </TableRow>
-  );
-}
-
-const DeleteAlertDialog = ({
-  user,
-  onCancel,
-  onDelete,
-}: {
-  user: IUser;
-  onCancel: () => void;
-  onDelete: () => void;
-}) => {
-  const onContinue = async () => {
-    try {
-      await deleteUser(user.id);
-      onDelete();
-      toast.success("User deleted successfully");
-      onCancel();
-    } catch (error) {
-      toast.error("Failed to delete user");
-    }
-  };
-
-  return (
-    <AlertDialog open>
-      <AlertDialogTrigger asChild></AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-          <AlertDialogDescription>
-            {`Are you sure you want to delete user ${user.name}?`}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onContinue}>Continue</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-};
-
-export function DataTable({
-  data,
-  refetchUsers,
-}: {
-  data: IUser[];
-  refetchUsers: () => void;
-}) {
-  const [selectedUser, setSelectedUser] = useState<IUser | null>(null);
-  const [rowSelection, setRowSelection] = React.useState({});
-  const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>({});
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    []
-  );
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [pagination, setPagination] = React.useState({
-    pageIndex: 0,
-    pageSize: 100,
-  });
-  const sortableId = React.useId();
-  const sensors = useSensors(
-    useSensor(MouseSensor, {}),
-    useSensor(TouchSensor, {}),
-    useSensor(KeyboardSensor, {})
-  );
-
-  const dataIds = React.useMemo<UniqueIdentifier[]>(
-    () => data?.map(({ id }) => id) || [],
-    [data]
-  );
+  const [selectedDialogAndUser, setSelectedDialogAndUser] = useState<{
+    user: IUser;
+    dialog: "delete" | "edit";
+  } | null>(null);
 
   const columns: ColumnDef<IUser>[] = useMemo(
     () => [
@@ -188,7 +53,7 @@ export function DataTable({
         accessorKey: "name",
         header: "Name",
         cell: ({ row }) => {
-          return <td>{row?.original.name}</td>;
+          return <span>{row?.original.name}</span>;
         },
         enableHiding: false,
       },
@@ -196,7 +61,7 @@ export function DataTable({
         header: "Email",
         accessorKey: "email",
         cell: ({ row }) => {
-          return <td>{row?.original.email}</td>;
+          return <span>{row?.original.email}</span>;
         },
         enableHiding: false,
       },
@@ -204,7 +69,7 @@ export function DataTable({
         header: "Phone",
         accessorKey: "phone",
         cell: ({ row }) => {
-          return <td>{row?.original.phone}</td>;
+          return <span>{row?.original.phone}</span>;
         },
         enableHiding: false,
       },
@@ -212,10 +77,16 @@ export function DataTable({
         header: "Actions",
         accessorKey: "id",
         cell: ({ row }) => {
+          const onActionClick = (type: "edit" | "delete") =>
+            setSelectedDialogAndUser({ user: row.original, dialog: type });
+
           return (
-            <Button onClick={() => setSelectedUser(row.original)}>
-              Delete
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => onActionClick("edit")}>
+                Edit
+              </Button>
+              <Button onClick={() => onActionClick("delete")}>Delete</Button>
+            </div>
           );
         },
       },
@@ -224,214 +95,125 @@ export function DataTable({
   );
 
   const table = useReactTable({
-    data,
+    data: users || [],
     columns,
     state: {
-      sorting,
-      columnVisibility,
-      rowSelection,
-      columnFilters,
-      pagination,
+      pagination: {
+        pageIndex: 0,
+        pageSize: 100,
+      },
     },
-    getRowId: (row) => row.id.toString(),
     enableRowSelection: true,
-    onRowSelectionChange: setRowSelection,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    onColumnVisibilityChange: setColumnVisibility,
-    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFacetedRowModel: getFacetedRowModel(),
-    getFacetedUniqueValues: getFacetedUniqueValues(),
   });
 
   return (
     <>
-      <Tabs
-        defaultValue="outline"
-        className="w-full flex-col justify-start gap-6"
-      >
-        <TabsContent
-          value="outline"
-          className="relative flex flex-col gap-4 overflow-auto px-4 lg:px-6"
-        >
-          <div className="overflow-hidden rounded-lg border">
-            <DndContext
-              collisionDetection={closestCenter}
-              modifiers={[restrictToVerticalAxis]}
-              sensors={sensors}
-              id={sortableId}
+      <div className="overflow-hidden rounded-lg border m-4">
+        <Table>
+          <TableHeader className="bg-muted sticky top-0 z-10">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => {
+                  return (
+                    <TableHead key={header.id} colSpan={header.colSpan}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </TableHead>
+                  );
+                })}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody className="**:data-[slot=table-cell]:first:w-8">
+            <DataStateHandler
+              data={users}
+              isError={isError}
+              isLoading={isLoading}
+              ErrorComponent={() => (
+                <TableRow>
+                  <TableCell
+                    colSpan={columns.length}
+                    className="h-24 text-center"
+                  >
+                    Failed loading data.
+                  </TableCell>
+                </TableRow>
+              )}
+              LoadingComponent={() =>
+                Array(5)
+                  .fill(null)
+                  .map((_, index) => (
+                    <TableRow key={`loading-row-${index}`}>
+                      <TableCell>
+                        <Skeleton className="h-6 w-[250px]" />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-6 w-[200px]" />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-6 w-[100px]" />
+                      </TableCell>
+                    </TableRow>
+                  ))
+              }
+              NoDataComponent={() => (
+                <TableRow>
+                  <TableCell
+                    colSpan={columns.length}
+                    className="h-24 text-center"
+                  >
+                    No results.
+                  </TableCell>
+                </TableRow>
+              )}
             >
-              <Table>
-                <TableHeader className="bg-muted sticky top-0 z-10">
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <TableRow key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => {
+              <SortableContext
+                items={table.getRowModel().rows.map((row) => row.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {table.getRowModel().rows.map((row) => {
+                  return (
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && "selected"}
+                    >
+                      {row.getVisibleCells().map((cell) => {
                         return (
-                          <TableHead key={header.id} colSpan={header.colSpan}>
-                            {header.isPlaceholder
-                              ? null
-                              : flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext()
-                                )}
-                          </TableHead>
+                          <TableCell key={cell.id}>
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext()
+                            )}
+                          </TableCell>
                         );
                       })}
                     </TableRow>
-                  ))}
-                </TableHeader>
-                <TableBody className="**:data-[slot=table-cell]:first:w-8">
-                  {table.getRowModel().rows?.length ? (
-                    <SortableContext
-                      items={dataIds}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      {table.getRowModel().rows.map((row) => (
-                        <DraggableRow key={row.id} row={row} />
-                      ))}
-                    </SortableContext>
-                  ) : (
-                    <TableRow>
-                      <TableCell
-                        colSpan={columns.length}
-                        className="h-24 text-center"
-                      >
-                        No results.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </DndContext>
-          </div>
-          <div className="flex items-center justify-between px-4">
-            <div className="text-muted-foreground hidden flex-1 text-sm lg:flex">
-              {table.getFilteredSelectedRowModel().rows.length} of{" "}
-              {table.getFilteredRowModel().rows.length} row(s) selected.
-            </div>
-            <div className="flex w-full items-center gap-8 lg:w-fit">
-              <div className="hidden items-center gap-2 lg:flex">
-                <Label htmlFor="rows-per-page" className="text-sm font-medium">
-                  Rows per page
-                </Label>
-                <Select
-                  value={`${table.getState().pagination.pageSize}`}
-                  onValueChange={(value) => {
-                    table.setPageSize(Number(value));
-                  }}
-                >
-                  <SelectTrigger size="sm" className="w-20" id="rows-per-page">
-                    <SelectValue
-                      placeholder={table.getState().pagination.pageSize}
-                    />
-                  </SelectTrigger>
-                  <SelectContent side="top">
-                    {[10, 20, 30, 40, 50].map((pageSize) => (
-                      <SelectItem key={pageSize} value={`${pageSize}`}>
-                        {pageSize}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex w-fit items-center justify-center text-sm font-medium">
-                Page {table.getState().pagination.pageIndex + 1} of{" "}
-                {table.getPageCount()}
-              </div>
-              <div className="ml-auto flex items-center gap-2 lg:ml-0">
-                <Button
-                  variant="outline"
-                  className="hidden h-8 w-8 p-0 lg:flex"
-                  onClick={() => table.setPageIndex(0)}
-                  disabled={!table.getCanPreviousPage()}
-                >
-                  <span className="sr-only">Go to first page</span>
-                  <IconChevronsLeft />
-                </Button>
-                <Button
-                  variant="outline"
-                  className="size-8"
-                  size="icon"
-                  onClick={() => table.previousPage()}
-                  disabled={!table.getCanPreviousPage()}
-                >
-                  <span className="sr-only">Go to previous page</span>
-                  <IconChevronLeft />
-                </Button>
-                <Button
-                  variant="outline"
-                  className="size-8"
-                  size="icon"
-                  onClick={() => table.nextPage()}
-                  disabled={!table.getCanNextPage()}
-                >
-                  <span className="sr-only">Go to next page</span>
-                  <IconChevronRight />
-                </Button>
-                <Button
-                  variant="outline"
-                  className="hidden size-8 lg:flex"
-                  size="icon"
-                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-                  disabled={!table.getCanNextPage()}
-                >
-                  <span className="sr-only">Go to last page</span>
-                  <IconChevronsRight />
-                </Button>
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-        <TabsContent
-          value="past-performance"
-          className="flex flex-col px-4 lg:px-6"
-        >
-          <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-        </TabsContent>
-        <TabsContent
-          value="key-personnel"
-          className="flex flex-col px-4 lg:px-6"
-        >
-          <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-        </TabsContent>
-        <TabsContent
-          value="focus-documents"
-          className="flex flex-col px-4 lg:px-6"
-        >
-          <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-        </TabsContent>
-      </Tabs>
-      {selectedUser && (
-        <DeleteAlertDialog
-          user={selectedUser}
+                  );
+                })}
+              </SortableContext>
+            </DataStateHandler>
+          </TableBody>
+        </Table>
+      </div>
+      {selectedDialogAndUser?.dialog === "delete" && (
+        <DeleteUserDialog
           onDelete={refetchUsers}
-          onCancel={() => setSelectedUser(null)}
+          user={selectedDialogAndUser.user}
+          onCancel={() => setSelectedDialogAndUser(null)}
+        />
+      )}
+      {selectedDialogAndUser?.dialog === "edit" && (
+        <EditUserDialog
+          onEdit={refetchUsers}
+          user={selectedDialogAndUser.user}
+          onCancel={() => setSelectedDialogAndUser(null)}
         />
       )}
     </>
   );
 }
-
-const chartData = [
-  { month: "January", desktop: 186, mobile: 80 },
-  { month: "February", desktop: 305, mobile: 200 },
-  { month: "March", desktop: 237, mobile: 120 },
-  { month: "April", desktop: 73, mobile: 190 },
-  { month: "May", desktop: 209, mobile: 130 },
-  { month: "June", desktop: 214, mobile: 140 },
-];
-
-const chartConfig = {
-  desktop: {
-    label: "Desktop",
-    color: "var(--primary)",
-  },
-  mobile: {
-    label: "Mobile",
-    color: "var(--primary)",
-  },
-} satisfies ChartConfig;

@@ -1,3 +1,4 @@
+import { IUser } from "@/schemas/users";
 import apiClient from "../client";
 
 export const getUsers = async () => {
@@ -29,8 +30,8 @@ export const createUser = async (data: any) => {
   return response.data;
 };
 
-export const updateUser = async (id: string, data: any) => {
-  const response = await apiClient.put(`/users/${id}`, data);
+export const updateUser = async (data: IUser) => {
+  const response = await apiClient.put(`/users/${data.id}`, data);
   if (response.status !== 200) {
     throw new Error(JSON.stringify(response.data));
   }

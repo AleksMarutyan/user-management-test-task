@@ -1,23 +1,26 @@
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { useForm, SubmitHandler } from "react-hook-form";
-import { createUser } from "@/services/api/users";
-import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { useState } from "react";
 import { z, ZodType } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, SubmitHandler } from "react-hook-form";
 
 import {
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
+  DialogHeader,
+  DialogFooter,
+  DialogContent,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { createUser } from "@/services/api/users";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { IUser } from "@/schemas/users";
 import { Input } from "./ui/input";
-import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { useInvalidateQuery } from "@/hooks/use-invalidate-query";
+import { QUERY_KEYS } from "@/constants/queryKeys";
 
 type CreateUserType = Pick<IUser, "name" | "email" | "phone">;
 
@@ -29,9 +32,9 @@ export const CreateUserZodSchema: ZodType<CreateUserType> = z.object({
   phone: z.string().min(1, { message: "Phone is required" }),
 });
 
-// TODO: onCreateUser should refetch the data for users
-export function SiteHeader({ onCreateUser }: { onCreateUser?: () => void }) {
+export function SiteHeader() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { invalidateQuery } = useInvalidateQuery();
 
   const {
     reset,
@@ -43,27 +46,27 @@ export function SiteHeader({ onCreateUser }: { onCreateUser?: () => void }) {
     resolver: zodResolver(CreateUserZodSchema),
   });
 
-  const onSubmit: SubmitHandler<CreateUserType> = async (data) => {
-    try {
-      await createUser(data);
-
-      if (onCreateUser) {
-        onCreateUser();
-      }
-
+  const { mutate, isPending } = useMutation({
+    mutationFn: createUser,
+    onSuccess: async () => {
+      await invalidateQuery(QUERY_KEYS.USERS);
+      toast.success("User created successfully");
       reset();
-
       setDialogOpen(false);
-    } catch (error) {
-      // TODO show toast
-      console.error("Error creating user:", error);
-    }
+    },
+    onError: (error) => {
+      toast.error(`Failed creating user`);
+    },
+  });
+
+  const onSubmit: SubmitHandler<CreateUserType> = (data) => {
+    mutate(data);
   };
 
   return (
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
-      <div className="flex w-full items-center gap-1 px-4 lg:gap-2 lg:px-6">
-        <h1 className="text-base font-medium">Users dashboard</h1>
+      <div className="flex p-2 w-full items-center gap-1 px-4 lg:gap-2 lg:px-6">
+        <h1 className="text-base font-medium">Users</h1>
         <Separator
           orientation="vertical"
           className="mx-2 data-[orientation=vertical]:h-4"
@@ -75,11 +78,7 @@ export function SiteHeader({ onCreateUser }: { onCreateUser?: () => void }) {
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
-                <DialogTitle>Edit profile</DialogTitle>
-                <DialogDescription>
-                  Make changes to your profile here. Click save when you're
-                  done.
-                </DialogDescription>
+                <DialogTitle>Add user</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit(onSubmit)}>
                 <div className="grid gap-4 py-4">
@@ -113,7 +112,9 @@ export function SiteHeader({ onCreateUser }: { onCreateUser?: () => void }) {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit">Create User</Button>
+                  <Button type="submit" disabled={isPending}>
+                    {isPending ? "Adding user..." : "Add user"}
+                  </Button>
                 </DialogFooter>
               </form>
             </DialogContent>
